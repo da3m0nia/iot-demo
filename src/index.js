@@ -1,18 +1,20 @@
 /**
- * IoT Demo Worker — Cloudflare Workers + D1 + MQTT over WebSocket → ThingsBoard
+ * IoT Demo Worker — Cloudflare Workers + D1 + ThingsBoard
  *
  * Endpoints:
  *   GET  /          → صفحهٔ راهنما
  *   GET  /readings  → ۲۰ رکورد آخر از D1
- *   POST /simulate  → تولید دادهٔ فیک، ذخیره در D1، ارسال به ThingsBoard (await مستقیم)
+ *   POST /simulate  → تولید دادهٔ فیک، ذخیره در D1، ارسال به ThingsBoard
  *   POST /resend    → تلاش مجدد برای ارسال رکوردهای published=0
  *
- * نکات مهم:
- *   - در Workers، اتصال خروجی WebSocket باید با fetch() و هدر Upgrade انجام شود
- *     (new WebSocket() برای اتصال خروجی پشتیبانی نمی‌شود).
- *   - به‌جای ctx.waitUntil از await مستقیم استفاده می‌کنیم تا ارسال MQTT
- *     قبل از پایان درخواست لغو نشود.
- *   - پیام‌های WebSocket در Workers ممکن است Blob باشند؛ باید به ArrayBuffer تبدیل شوند.
+ * ─── نکتهٔ مهم برای مصاحبه ───
+ * در محیط Cloudflare Workers، اتصال خروجی WebSocket به سرورهای خارجی
+ * (مثل mqtt.thingsboard.cloud) با محدودیت‌های شبکه‌ای مواجه می‌شود
+ * (خطای 522). همچنین پورت‌های استاندارد MQTT (1883/8883) در Workers
+ * مسدود هستند. بنابراین برای این دمو از REST API ThingsBoard استفاده
+ * می‌کنیم که همان تله‌متری را می‌فرستد و در محیط Serverless پایدار است.
+ * در پروژه‌های واقعی IoT که روی سرور یا Edge Device اجرا می‌شوند،
+ * از MQTT با کتابخانه‌هایی مثل mqtt.js استفاده می‌شود.
  */
 
 export default {
@@ -53,16 +55,17 @@ export default {
 
         reading.id = result.meta.last_row_id;
 
-        // ارسال MQTT به‌صورت مستقیم (await) تا Worker تا پایان صبر کند
-        let mqtt = { ok: true };
+        // ارسال به ThingsBoard با await مستقیم (نه waitUntil)
+        let tb = { ok: true };
         try {
-          await publishAndMark(reading, env);
+          await publishToThingsBoard(reading, env);
+          await markPublished(reading.id, env);
         } catch (err) {
-          console.error('MQTT publish failed:', err);
-          mqtt = { ok: false, error: err.message };
+          console.error('ThingsBoard publish failed:', err);
+          tb = { ok: false, error: err.message };
         }
 
-        return Response.json({ status: 'ok', reading, mqtt });
+        return Response.json({ status: 'ok', reading, thingsboard: tb });
       } catch (err) {
         return Response.json(
           { status: 'error', message: err.message },
@@ -120,7 +123,7 @@ function generateFakeReading() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  D1 helpers                                                         */
+/*  D1 helper                                                          */
 /* ------------------------------------------------------------------ */
 
 async function markPublished(id, env) {
@@ -131,27 +134,14 @@ async function markPublished(id, env) {
     .run();
 }
 
-async function publishAndMark(reading, env) {
-  await publishToThingsBoard(reading, env);
-  if (reading.id) await markPublished(reading.id, env);
-}
-
 /* ------------------------------------------------------------------ */
-/*  MQTT over WebSocket → ThingsBoard (via fetch upgrade)              */
+/*  ThingsBoard — REST API telemetry                                   */
 /* ------------------------------------------------------------------ */
 
 async function publishToThingsBoard(reading, env) {
   const token = env.TB_ACCESS_TOKEN;
   if (!token) throw new Error('TB_ACCESS_TOKEN is not set');
 
-  const rawUrl = env.TB_MQTT_URL || 'wss://mqtt.thingsboard.cloud/mqtt';
-  // در Workers اتصال خروجی WebSocket با fetch انجام می‌شود، پس
-  // طرح wss:// باید به https:// تبدیل شود.
-  const wsUrl = rawUrl
-    .replace(/^wss:\/\//, 'https://')
-    .replace(/^ws:\/\//, 'http://');
-
-  const topic = 'v1/devices/me/telemetry';
   const payload = JSON.stringify({
     temperature: reading.temperature,
     humidity: reading.humidity,
@@ -160,160 +150,20 @@ async function publishToThingsBoard(reading, env) {
     ts: reading.ts,
   });
 
-  // 1) ارتقای اتصال به WebSocket با fetch
-  const response = await fetch(wsUrl, {
-    headers: {
-      Upgrade: 'websocket',
-      'Sec-WebSocket-Protocol': 'mqtt',
-    },
+  const url = `https://thingsboard.cloud/api/v1/${token}/telemetry`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: payload,
   });
 
-  if (response.status !== 101) {
-    throw new Error(`WebSocket upgrade failed: ${response.status}`);
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(
+      `ThingsBoard REST failed: ${response.status} ${text.slice(0, 200)}`
+    );
   }
-
-  const ws = response.webSocket;
-  if (!ws) throw new Error('No webSocket in fetch response');
-  ws.accept();
-
-  // 2) گفت‌وگوی MQTT داخل یک Promise
-  await new Promise((resolve, reject) => {
-    let settled = false;
-    const finish = (fn, arg) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      fn(arg);
-    };
-
-    const timeout = setTimeout(() => {
-      try { ws.close(); } catch (_) {}
-      finish(reject, new Error('MQTT timeout'));
-    }, 8000);
-
-    ws.addEventListener('open', () => {
-      try {
-        ws.send(buildConnectPacket(token));
-      } catch (err) {
-        finish(reject, err);
-      }
-    });
-
-    ws.addEventListener('message', async (event) => {
-      try {
-        // در Workers پیام ممکن است Blob باشد
-        let raw = event.data;
-        if (raw instanceof Blob) {
-          raw = await raw.arrayBuffer();
-        }
-        const data = new Uint8Array(raw);
-        const packetType = data[0] >> 4;
-
-        if (packetType === 2 /* CONNACK */) {
-          const returnCode = data.length >= 4 ? data[3] : 0xff;
-          if (returnCode !== 0x00) {
-            try { ws.close(); } catch (_) {}
-            finish(reject, new Error(`CONNACK rejected, code=${returnCode}`));
-            return;
-          }
-
-          try {
-            ws.send(buildPublishPacket(topic, payload));
-          } catch (err) {
-            finish(reject, err);
-            return;
-          }
-
-          // QoS 0 → بدون ack؛ کمی صبر تا ارسال شود
-          setTimeout(() => {
-            try { ws.send(buildDisconnectPacket()); } catch (_) {}
-            try { ws.close(); } catch (_) {}
-            finish(resolve);
-          }, 400);
-        }
-      } catch (err) {
-        finish(reject, err);
-      }
-    });
-
-    ws.addEventListener('error', (event) => {
-      finish(
-        reject,
-        new Error('WebSocket error: ' + (event?.message || 'unknown'))
-      );
-    });
-
-    ws.addEventListener('close', () => {
-      finish(resolve);
-    });
-  });
-}
-
-/* ------------------------------------------------------------------ */
-/*  MQTT 3.1.1 packet builders (QoS 0)                                 */
-/* ------------------------------------------------------------------ */
-
-function buildConnectPacket(accessToken) {
-  const protocolName = encodeString('MQTT');
-  const protocolLevel = 4;      // MQTT 3.1.1
-  // 0x82 = username flag (0x80) + clean session (0x02)
-  const connectFlags = 0x82;
-  const keepAlive = 60;
-
-  const variableHeader = new Uint8Array([
-    ...protocolName,
-    protocolLevel,
-    connectFlags,
-    (keepAlive >> 8) & 0xff,
-    keepAlive & 0xff,
-  ]);
-
-  const clientId = encodeString(accessToken);
-  const username = encodeString(accessToken); // ThingsBoard: username = Access Token
-  const payload = new Uint8Array([...clientId, ...username]);
-
-  const remaining = variableHeader.length + payload.length;
-  const fixedHeader = new Uint8Array([
-    0x10,
-    ...encodeRemainingLength(remaining),
-  ]);
-
-  return new Uint8Array([...fixedHeader, ...variableHeader, ...payload]);
-}
-
-function buildPublishPacket(topic, payloadStr) {
-  const topicBytes = encodeString(topic);
-  const payloadBytes = new TextEncoder().encode(payloadStr);
-  const remaining = topicBytes.length + payloadBytes.length;
-  const fixedHeader = new Uint8Array([
-    0x30, // PUBLISH, QoS 0
-    ...encodeRemainingLength(remaining),
-  ]);
-  return new Uint8Array([...fixedHeader, ...topicBytes, ...payloadBytes]);
-}
-
-function buildDisconnectPacket() {
-  return new Uint8Array([0xe0, 0x00]);
-}
-
-function encodeString(str) {
-  const bytes = new TextEncoder().encode(str);
-  return new Uint8Array([
-    (bytes.length >> 8) & 0xff,
-    bytes.length & 0xff,
-    ...bytes,
-  ]);
-}
-
-function encodeRemainingLength(length) {
-  const bytes = [];
-  do {
-    let digit = length % 128;
-    length = Math.floor(length / 128);
-    if (length > 0) digit |= 0x80;
-    bytes.push(digit);
-  } while (length > 0);
-  return bytes;
 }
 
 /* ------------------------------------------------------------------ */
@@ -324,7 +174,7 @@ const INFO_HTML = `<!doctype html>
 <html lang="fa" dir="rtl">
 <head>
   <meta charset="utf-8" />
-  <title>IoT Demo — Workers + D1 + MQTT</title>
+  <title>IoT Demo — Workers + D1 + ThingsBoard</title>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 16px; line-height: 1.7; color:#222; }
     code { background:#f3f3f3; padding:2px 6px; border-radius:4px; }
@@ -333,8 +183,8 @@ const INFO_HTML = `<!doctype html>
   </style>
 </head>
 <body>
-  <h1>IoT Demo — Workers + D1 + MQTT</h1>
-  <p>یک Worker روی Cloudflare که دادهٔ فیک سنسور تولید می‌کند، در <b>D1</b> ذخیره می‌کند و با <b>MQTT over WebSocket</b> به <b>ThingsBoard</b> می‌فرستد.</p>
+  <h1>IoT Demo — Workers + D1 + ThingsBoard</h1>
+  <p>یک Worker روی Cloudflare که دادهٔ فیک سنسور تولید می‌کند، در <b>D1</b> ذخیره می‌کند و به <b>ThingsBoard</b> می‌فرستد.</p>
 
   <h2>Endpoint ها</h2>
   <pre>
@@ -348,6 +198,6 @@ POST /resend       → ارسال مجدد رکوردهای published = 0
 
   <p><a class="btn" href="/readings">دیدن داده‌ها در D1</a></p>
 
-  <p style="color:#666;font-size:.9em">نمونهٔ پروژه برای مصاحبهٔ IoT — ترکیب Edge، D1 و MQTT.</p>
+  <p style="color:#666;font-size:.9em">نمونهٔ پروژه برای مصاحبهٔ IoT — ترکیب Edge، D1 و ThingsBoard.</p>
 </body>
 </html>`;
