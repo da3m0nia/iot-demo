@@ -1,7 +1,27 @@
+# ─── Dependencies ───────────────────────────────────────────────
 node_modules/
+package-lock.json
+
+# ─── Cloudflare Wrangler ────────────────────────────────────────
 .wrangler/
 .dev.vars
 .env
+.env.*
+!.env.example
+
+# ─── Build output ───────────────────────────────────────────────
 dist/
-.DS_Store
+build/
 *.log
+
+# ─── Editor / OS ────────────────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# ─── Testing / temp ─────────────────────────────────────────────
+coverage/
+.tmp/
+*.local
