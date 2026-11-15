@@ -1,14 +1,14 @@
 /**
- * IoT Demo Worker
+ * IoT Demo Worker — Cloudflare Workers + D1 + MQTT over WebSocket → ThingsBoard
  *
  * Endpoints:
- *   GET  /              → صفحهٔ راهنما
- *   GET  /readings      → ۲۰ رکورد آخر از D1
- *   POST /simulate      → تولید دادهٔ فیک، ذخیره در D1، ارسال به ThingsBoard
- *   POST /resend        → تلاش مجدد برای ارسال رکوردهای ارسال‌نشده (Store-and-Forward)
+ *   GET  /          → صفحهٔ راهنما
+ *   GET  /readings  → ۲۰ رکورد آخر از D1
+ *   POST /simulate  → تولید دادهٔ فیک، ذخیره در D1، ارسال به ThingsBoard
+ *   POST /resend    → تلاش مجدد برای ارسال رکوردهای published=0
  *
- * MQTT از طریق WebSocket پیاده‌سازی شده چون mqtt.js در Cloudflare Workers
- * پشتیبانی نمی‌شود (به socket خام نیاز دارد).
+ * نکته: در Cloudflare Workers اتصال خروجی WebSocket باید با fetch() و هدر
+ * Upgrade: websocket انجام شود، نه با new WebSocket().
  */
 
 export default {
@@ -113,7 +113,7 @@ function generateFakeReading() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  D1 helper                                                          */
+/*  D1 helpers                                                         */
 /* ------------------------------------------------------------------ */
 
 async function markPublished(id, env) {
@@ -124,20 +124,25 @@ async function markPublished(id, env) {
     .run();
 }
 
-/* ------------------------------------------------------------------ */
-/*  MQTT over WebSocket → ThingsBoard                                  */
-/* ------------------------------------------------------------------ */
-
 async function publishAndMark(reading, env) {
   await publishToThingsBoard(reading, env);
   if (reading.id) await markPublished(reading.id, env);
 }
 
+/* ------------------------------------------------------------------ */
+/*  MQTT over WebSocket → ThingsBoard (via fetch upgrade)              */
+/* ------------------------------------------------------------------ */
+
 async function publishToThingsBoard(reading, env) {
   const token = env.TB_ACCESS_TOKEN;
   if (!token) throw new Error('TB_ACCESS_TOKEN is not set');
 
-  const wsUrl = env.TB_MQTT_URL || 'wss://mqtt.thingsboard.cloud:8084/mqtt';
+  const rawUrl =
+    env.TB_MQTT_URL || 'wss://mqtt.thingsboard.cloud/mqtt';
+  // در Workers اتصال خروجی WebSocket با fetch انجام می‌شود، پس
+  // طرح wss:// باید به https:// تبدیل شود.
+  const wsUrl = rawUrl.replace(/^wss:\/\//, 'https://').replace(/^ws:\/\//, 'http://');
+
   const topic = 'v1/devices/me/telemetry';
   const payload = JSON.stringify({
     temperature: reading.temperature,
@@ -147,17 +152,36 @@ async function publishToThingsBoard(reading, env) {
     ts: reading.ts,
   });
 
-  await new Promise((resolve, reject) => {
-    const ws = new WebSocket(wsUrl, ['mqtt']);
-    ws.binaryType = 'arraybuffer';
+  // 1) ارتقای اتصال به WebSocket با fetch
+  const response = await fetch(wsUrl, {
+    headers: {
+      Upgrade: 'websocket',
+      'Sec-WebSocket-Protocol': 'mqtt',
+    },
+  });
 
+  if (response.status !== 101) {
+    throw new Error(`WebSocket upgrade failed: ${response.status}`);
+  }
+
+  const ws = response.webSocket;
+  if (!ws) throw new Error('No webSocket in fetch response');
+  ws.accept();
+
+  // 2) گفت‌وگوی MQTT داخل یک Promise
+  await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       try { ws.close(); } catch (_) {}
       reject(new Error('MQTT timeout'));
     }, 8000);
 
     ws.addEventListener('open', () => {
-      ws.send(buildConnectPacket(token));
+      try {
+        ws.send(buildConnectPacket(token));
+      } catch (err) {
+        clearTimeout(timeout);
+        reject(err);
+      }
     });
 
     ws.addEventListener('message', (event) => {
@@ -165,8 +189,24 @@ async function publishToThingsBoard(reading, env) {
       const packetType = data[0] >> 4;
 
       if (packetType === 2 /* CONNACK */) {
-        ws.send(buildPublishPacket(topic, payload));
-        // QoS 0 → بدون ack؛ کمی صبر می‌کنیم تا ارسال شود، سپس قطع
+        // بررسی کد بازگشت CONNACK (بایت چهارم؛ 0x00 = پذیرفته‌شده)
+        const returnCode = data.length >= 4 ? data[3] : 0xff;
+        if (returnCode !== 0x00) {
+          clearTimeout(timeout);
+          try { ws.close(); } catch (_) {}
+          reject(new Error(`CONNACK rejected, code=${returnCode}`));
+          return;
+        }
+
+        try {
+          ws.send(buildPublishPacket(topic, payload));
+        } catch (err) {
+          clearTimeout(timeout);
+          reject(err);
+          return;
+        }
+
+        // QoS 0 → بدون ack؛ کمی صبر تا ارسال شود
         setTimeout(() => {
           try { ws.send(buildDisconnectPacket()); } catch (_) {}
           try { ws.close(); } catch (_) {}
@@ -208,7 +248,7 @@ function buildConnectPacket(accessToken) {
   ]);
 
   const clientId = encodeString(accessToken);
-  const username = encodeString(accessToken);
+  const username = encodeString(accessToken); // ThingsBoard: username = Access Token
   const payload = new Uint8Array([...clientId, ...username]);
 
   const remaining = variableHeader.length + payload.length;
