@@ -5,4 +5,4 @@ compatibility_date = "2024-11-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "iot-demo-db"
-database_id = "REPLACE_WITH_YOUR_DATABASE_ID"
+database_id = "76024578-828e-479c-bfca-f613e8efa3e5"
