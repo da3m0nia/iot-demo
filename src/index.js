@@ -4,11 +4,15 @@
  * Endpoints:
  *   GET  /          → صفحهٔ راهنما
  *   GET  /readings  → ۲۰ رکورد آخر از D1
- *   POST /simulate  → تولید دادهٔ فیک، ذخیره در D1، ارسال به ThingsBoard
+ *   POST /simulate  → تولید دادهٔ فیک، ذخیره در D1، ارسال به ThingsBoard (await مستقیم)
  *   POST /resend    → تلاش مجدد برای ارسال رکوردهای published=0
  *
- * نکته: در Cloudflare Workers اتصال خروجی WebSocket باید با fetch() و هدر
- * Upgrade: websocket انجام شود، نه با new WebSocket().
+ * نکات مهم:
+ *   - در Workers، اتصال خروجی WebSocket باید با fetch() و هدر Upgrade انجام شود
+ *     (new WebSocket() برای اتصال خروجی پشتیبانی نمی‌شود).
+ *   - به‌جای ctx.waitUntil از await مستقیم استفاده می‌کنیم تا ارسال MQTT
+ *     قبل از پایان درخواست لغو نشود.
+ *   - پیام‌های WebSocket در Workers ممکن است Blob باشند؛ باید به ArrayBuffer تبدیل شوند.
  */
 
 export default {
@@ -49,13 +53,16 @@ export default {
 
         reading.id = result.meta.last_row_id;
 
-        ctx.waitUntil(
-          publishAndMark(reading, env).catch((err) =>
-            console.error('MQTT publish failed:', err)
-          )
-        );
+        // ارسال MQTT به‌صورت مستقیم (await) تا Worker تا پایان صبر کند
+        let mqtt = { ok: true };
+        try {
+          await publishAndMark(reading, env);
+        } catch (err) {
+          console.error('MQTT publish failed:', err);
+          mqtt = { ok: false, error: err.message };
+        }
 
-        return Response.json({ status: 'ok', reading });
+        return Response.json({ status: 'ok', reading, mqtt });
       } catch (err) {
         return Response.json(
           { status: 'error', message: err.message },
@@ -137,11 +144,12 @@ async function publishToThingsBoard(reading, env) {
   const token = env.TB_ACCESS_TOKEN;
   if (!token) throw new Error('TB_ACCESS_TOKEN is not set');
 
-  const rawUrl =
-    env.TB_MQTT_URL || 'wss://mqtt.thingsboard.cloud/mqtt';
+  const rawUrl = env.TB_MQTT_URL || 'wss://mqtt.thingsboard.cloud/mqtt';
   // در Workers اتصال خروجی WebSocket با fetch انجام می‌شود، پس
   // طرح wss:// باید به https:// تبدیل شود.
-  const wsUrl = rawUrl.replace(/^wss:\/\//, 'https://').replace(/^ws:\/\//, 'http://');
+  const wsUrl = rawUrl
+    .replace(/^wss:\/\//, 'https://')
+    .replace(/^ws:\/\//, 'http://');
 
   const topic = 'v1/devices/me/telemetry';
   const payload = JSON.stringify({
@@ -170,60 +178,73 @@ async function publishToThingsBoard(reading, env) {
 
   // 2) گفت‌وگوی MQTT داخل یک Promise
   await new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, arg) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      fn(arg);
+    };
+
     const timeout = setTimeout(() => {
       try { ws.close(); } catch (_) {}
-      reject(new Error('MQTT timeout'));
+      finish(reject, new Error('MQTT timeout'));
     }, 8000);
 
     ws.addEventListener('open', () => {
       try {
         ws.send(buildConnectPacket(token));
       } catch (err) {
-        clearTimeout(timeout);
-        reject(err);
+        finish(reject, err);
       }
     });
 
-    ws.addEventListener('message', (event) => {
-      const data = new Uint8Array(event.data);
-      const packetType = data[0] >> 4;
-
-      if (packetType === 2 /* CONNACK */) {
-        // بررسی کد بازگشت CONNACK (بایت چهارم؛ 0x00 = پذیرفته‌شده)
-        const returnCode = data.length >= 4 ? data[3] : 0xff;
-        if (returnCode !== 0x00) {
-          clearTimeout(timeout);
-          try { ws.close(); } catch (_) {}
-          reject(new Error(`CONNACK rejected, code=${returnCode}`));
-          return;
+    ws.addEventListener('message', async (event) => {
+      try {
+        // در Workers پیام ممکن است Blob باشد
+        let raw = event.data;
+        if (raw instanceof Blob) {
+          raw = await raw.arrayBuffer();
         }
+        const data = new Uint8Array(raw);
+        const packetType = data[0] >> 4;
 
-        try {
-          ws.send(buildPublishPacket(topic, payload));
-        } catch (err) {
-          clearTimeout(timeout);
-          reject(err);
-          return;
+        if (packetType === 2 /* CONNACK */) {
+          const returnCode = data.length >= 4 ? data[3] : 0xff;
+          if (returnCode !== 0x00) {
+            try { ws.close(); } catch (_) {}
+            finish(reject, new Error(`CONNACK rejected, code=${returnCode}`));
+            return;
+          }
+
+          try {
+            ws.send(buildPublishPacket(topic, payload));
+          } catch (err) {
+            finish(reject, err);
+            return;
+          }
+
+          // QoS 0 → بدون ack؛ کمی صبر تا ارسال شود
+          setTimeout(() => {
+            try { ws.send(buildDisconnectPacket()); } catch (_) {}
+            try { ws.close(); } catch (_) {}
+            finish(resolve);
+          }, 400);
         }
-
-        // QoS 0 → بدون ack؛ کمی صبر تا ارسال شود
-        setTimeout(() => {
-          try { ws.send(buildDisconnectPacket()); } catch (_) {}
-          try { ws.close(); } catch (_) {}
-          clearTimeout(timeout);
-          resolve();
-        }, 400);
+      } catch (err) {
+        finish(reject, err);
       }
     });
 
     ws.addEventListener('error', (event) => {
-      clearTimeout(timeout);
-      reject(new Error('WebSocket error: ' + (event?.message || 'unknown')));
+      finish(
+        reject,
+        new Error('WebSocket error: ' + (event?.message || 'unknown'))
+      );
     });
 
     ws.addEventListener('close', () => {
-      clearTimeout(timeout);
-      resolve();
+      finish(resolve);
     });
   });
 }
