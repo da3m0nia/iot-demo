@@ -1,15 +1,15 @@
 /**
  * Industrial IoT Dashboard — single-page app served by the Worker.
- * Persian RTL UI with device tabs, live sensor cards, chart, activity log.
+ * English LTR UI with device tabs, live sensor cards, chart, activity log.
  * Uses Chart.js from CDN (browser-side, no build step, no Worker CPU cost).
  */
 export const DASHBOARD_HTML = `<!doctype html>
-<html lang="fa" dir="rtl">
+<html lang="en" dir="ltr">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>IoT Gateway — Industrial Dashboard</title>
-  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
     :root {
@@ -20,12 +20,13 @@ export const DASHBOARD_HTML = `<!doctype html>
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: 'Vazirmatn', system-ui, sans-serif;
+      font-family: 'Inter', system-ui, sans-serif;
       background: radial-gradient(ellipse at top, #0f1a2e 0%, #070b14 60%);
       color: var(--text); line-height: 1.6; min-height: 100vh; padding: 20px;
     }
     .container { max-width: 1500px; margin: 0 auto; }
 
+    /* ─── Header ─────────────────────────────────────────────── */
     .header {
       display: flex; justify-content: space-between; align-items: center;
       padding: 16px 24px;
@@ -51,6 +52,7 @@ export const DASHBOARD_HTML = `<!doctype html>
     .btn-link { padding: 6px 14px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; color: var(--text); text-decoration: none; font-size: 12px; transition: .2s; }
     .btn-link:hover { border-color: var(--cyan); color: var(--cyan); }
 
+    /* ─── Device tabs ────────────────────────────────────────── */
     .device-tabs { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
     .device-tab {
       padding: 10px 20px; background: var(--card); border: 1px solid var(--border);
@@ -61,9 +63,10 @@ export const DASHBOARD_HTML = `<!doctype html>
     .device-tab.active { border-color: var(--cyan); background: rgba(34,211,238,0.08); color: var(--cyan); }
     .device-tab .icon { font-size: 18px; }
 
+    /* ─── Stat cards ─────────────────────────────────────────── */
     .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap: 12px; margin-bottom: 20px; }
     .stat-card { padding: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; position: relative; overflow: hidden; }
-    .stat-card::before { content: ''; position: absolute; top: 0; right: 0; width: 3px; height: 100%; }
+    .stat-card::before { content: ''; position: absolute; top: 0; left: 0; width: 3px; height: 100%; }
     .stat-card.total::before { background: var(--cyan); }
     .stat-card.sent::before  { background: var(--green); }
     .stat-card.pending::before { background: var(--yellow); }
@@ -71,6 +74,7 @@ export const DASHBOARD_HTML = `<!doctype html>
     .stat-value { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
     .stat-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
 
+    /* ─── Layout grid ────────────────────────────────────────── */
     .grid { display: grid; grid-template-columns: 1fr 2fr; gap: 16px; margin-bottom: 16px; }
     @media (max-width: 1000px) { .grid { grid-template-columns: 1fr; } }
 
@@ -78,6 +82,7 @@ export const DASHBOARD_HTML = `<!doctype html>
     .panel-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
     .panel-title::before { content: ''; width: 3px; height: 14px; background: var(--cyan); border-radius: 2px; }
 
+    /* ─── Controls ───────────────────────────────────────────── */
     .control-group { margin-bottom: 14px; }
     .control-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-2); margin-bottom: 6px; }
     .control-value { color: var(--cyan); font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -93,14 +98,17 @@ export const DASHBOARD_HTML = `<!doctype html>
     .btn-danger  { background: linear-gradient(135deg, var(--red), #dc2626); color: white; }
     .btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(34,211,238,.25); }
 
+    /* ─── Chart ──────────────────────────────────────────────── */
     .chart-container { position: relative; height: 300px; }
 
+    /* ─── Sensor cards ───────────────────────────────────────── */
     .sensor-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap: 10px; }
     .sensor-card { padding: 12px; background: rgba(15,26,46,0.6); border: 1px solid var(--border); border-radius: 10px; text-align: center; }
     .sensor-label { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
     .sensor-value { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--cyan); }
     .sensor-unit { font-size: 11px; color: var(--muted); }
 
+    /* ─── Activity log ───────────────────────────────────────── */
     .log-list { max-height: 200px; overflow-y: auto; }
     .log-list::-webkit-scrollbar { width: 6px; }
     .log-list::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 3px; }
@@ -112,6 +120,7 @@ export const DASHBOARD_HTML = `<!doctype html>
     .log-content { flex: 1; color: var(--text-2); font-family: monospace; font-size: 11px; }
     .empty-log { text-align: center; padding: 30px; color: var(--muted); font-size: 12px; }
 
+    /* ─── Toast ──────────────────────────────────────────────── */
     .toast {
       position: fixed; bottom: 20px; left: 20px; padding: 10px 18px;
       background: var(--card); border: 1px solid var(--border); border-radius: 8px;
@@ -119,9 +128,9 @@ export const DASHBOARD_HTML = `<!doctype html>
       opacity: 0; transform: translateY(16px); transition: .3s; z-index: 100;
     }
     .toast.show { opacity: 1; transform: translateY(0); }
-    .toast.success { border-right: 3px solid var(--green); }
-    .toast.error   { border-right: 3px solid var(--red); }
-    .toast.info    { border-right: 3px solid var(--cyan); }
+    .toast.success { border-left: 3px solid var(--green); }
+    .toast.error   { border-left: 3px solid var(--red); }
+    .toast.info    { border-left: 3px solid var(--cyan); }
   </style>
 </head>
 <body>
@@ -132,54 +141,54 @@ export const DASHBOARD_HTML = `<!doctype html>
         <p>Cloudflare Workers + D1 + ThingsBoard (EU)</p>
       </div>
       <div class="header-right">
-        <div class="status-pill"><span class="status-dot"></span><span id="conn-status">متصل</span></div>
+        <div class="status-pill"><span class="status-dot"></span><span id="conn-status">Connected</span></div>
         <a href="https://eu.thingsboard.cloud" target="_blank" class="btn-link">ThingsBoard ↗</a>
         <a href="/readings" target="_blank" class="btn-link">API ↗</a>
       </div>
     </div>
 
     <div class="device-tabs" id="device-tabs">
-      <button class="device-tab active" data-device="panel-01"><span class="icon">⚡</span> تابلو برق</button>
-      <button class="device-tab" data-device="motor-01"><span class="icon">⚙️</span> موتور</button>
-      <button class="device-tab" data-device="env-01"><span class="icon">🌿</span> محیطی</button>
+      <button class="device-tab active" data-device="panel-01"><span class="icon">⚡</span> Electrical Panel</button>
+      <button class="device-tab" data-device="motor-01"><span class="icon">⚙️</span> Motor</button>
+      <button class="device-tab" data-device="env-01"><span class="icon">🌿</span> Environment</button>
     </div>
 
     <div class="stats">
-      <div class="stat-card total"><div class="stat-label">📊 کل رکوردها</div><div class="stat-value" id="stat-total">0</div><div class="stat-sub">در D1</div></div>
-      <div class="stat-card sent"><div class="stat-label">✅ ارسال موفق</div><div class="stat-value" id="stat-sent" style="color:var(--green)">0</div><div class="stat-sub">به ThingsBoard</div></div>
-      <div class="stat-card pending"><div class="stat-label">⏳ در انتظار</div><div class="stat-value" id="stat-pending" style="color:var(--yellow)">0</div><div class="stat-sub">منتظر ارسال</div></div>
+      <div class="stat-card total"><div class="stat-label">📊 Total Records</div><div class="stat-value" id="stat-total">0</div><div class="stat-sub">in D1</div></div>
+      <div class="stat-card sent"><div class="stat-label">✅ Published</div><div class="stat-value" id="stat-sent" style="color:var(--green)">0</div><div class="stat-sub">to ThingsBoard</div></div>
+      <div class="stat-card pending"><div class="stat-label">⏳ Pending</div><div class="stat-value" id="stat-pending" style="color:var(--yellow)">0</div><div class="stat-sub">awaiting publish</div></div>
     </div>
 
     <div class="grid">
       <div class="panel">
-        <div class="panel-title">⚙️ پنل کنترل</div>
+        <div class="panel-title">⚙️ Control Panel</div>
         <div class="control-group">
-          <div class="control-label"><span>فاصله بین ارسال‌ها</span><span class="control-value"><span id="interval-val">3</span> ثانیه</span></div>
+          <div class="control-label"><span>Send Interval</span><span class="control-value"><span id="interval-val">3</span> s</span></div>
           <input type="range" id="interval" min="1" max="30" value="3" />
         </div>
         <div class="control-group">
-          <div class="control-label"><span>تعداد در هر نوبت</span><span class="control-value"><span id="batch-val">1</span> داده</span></div>
+          <div class="control-label"><span>Batch Size</span><span class="control-value"><span id="batch-val">1</span> record(s)</span></div>
           <input type="range" id="batch" min="1" max="10" value="1" />
         </div>
-        <button class="btn btn-success" id="btn-start"><span id="btn-start-icon">▶</span><span id="btn-start-text">شروع ارسال خودکار</span></button>
-        <button class="btn btn-primary" id="btn-single">📤 ارسال یک داده</button>
-        <button class="btn btn-warning" id="btn-resend">🔄 ارسال مجدد Pending</button>
+        <button class="btn btn-success" id="btn-start"><span id="btn-start-icon">▶</span><span id="btn-start-text">Start Auto-Send</span></button>
+        <button class="btn btn-primary" id="btn-single">📤 Send One Reading</button>
+        <button class="btn btn-warning" id="btn-resend">🔄 Retry Pending</button>
       </div>
 
       <div class="panel">
-        <div class="panel-title">📡 مقادیر لحظه‌ای سنسورها</div>
+        <div class="panel-title">📡 Live Sensor Values</div>
         <div class="sensor-grid" id="sensor-grid"></div>
       </div>
     </div>
 
     <div class="panel" style="margin-bottom:16px">
-      <div class="panel-title">📈 روند داده‌ها (۳۰ نقطهٔ آخر)</div>
+      <div class="panel-title">📈 Trend (last 30 points)</div>
       <div class="chart-container"><canvas id="chart"></canvas></div>
     </div>
 
     <div class="panel">
-      <div class="panel-title">📋 لاگ فعالیت</div>
-      <div class="log-list" id="log-list"><div class="empty-log">هنوز فعالیتی ثبت نشده. دکمهٔ «ارسال یک داده» را بزنید.</div></div>
+      <div class="panel-title">📋 Activity Log</div>
+      <div class="log-list" id="log-list"><div class="empty-log">No activity yet. Click "Send One Reading" to begin.</div></div>
     </div>
   </div>
 
@@ -197,30 +206,30 @@ export const DASHBOARD_HTML = `<!doctype html>
     var DEVICE_META = {
       'panel-01': {
         metrics: [
-          { key: 'voltage_l1', label: 'ولتاژ L1', unit: 'V', color: '#f59e0b' },
-          { key: 'voltage_l2', label: 'ولتاژ L2', unit: 'V', color: '#f97316' },
-          { key: 'voltage_l3', label: 'ولتاژ L3', unit: 'V', color: '#eab308' },
-          { key: 'current', label: 'جریان', unit: 'A', color: '#22d3ee' },
-          { key: 'active_power_kw', label: 'توان', unit: 'kW', color: '#a78bfa' },
-          { key: 'energy_kwh', label: 'انرژی', unit: 'kWh', color: '#f472b6' },
-          { key: 'panel_temp_c', label: 'دمای تابلو', unit: '°C', color: '#ef4444' }
+          { key: 'voltage_l1', label: 'Voltage L1', unit: 'V', color: '#f59e0b' },
+          { key: 'voltage_l2', label: 'Voltage L2', unit: 'V', color: '#f97316' },
+          { key: 'voltage_l3', label: 'Voltage L3', unit: 'V', color: '#eab308' },
+          { key: 'current', label: 'Current', unit: 'A', color: '#22d3ee' },
+          { key: 'active_power_kw', label: 'Active Power', unit: 'kW', color: '#a78bfa' },
+          { key: 'energy_kwh', label: 'Energy', unit: 'kWh', color: '#f472b6' },
+          { key: 'panel_temp_c', label: 'Panel Temp', unit: '°C', color: '#ef4444' }
         ]
       },
       'motor-01': {
         metrics: [
           { key: 'rpm', label: 'RPM', unit: 'rpm', color: '#22d3ee' },
-          { key: 'vibration_x', label: 'لرزش X', unit: 'mm/s', color: '#f59e0b' },
-          { key: 'vibration_y', label: 'لرزش Y', unit: 'mm/s', color: '#f97316' },
-          { key: 'vibration_z', label: 'لرزش Z', unit: 'mm/s', color: '#eab308' },
-          { key: 'winding_temp_c', label: 'دمای سیم‌پیچ', unit: '°C', color: '#ef4444' },
-          { key: 'motor_current_a', label: 'جریان', unit: 'A', color: '#a78bfa' }
+          { key: 'vibration_x', label: 'Vibration X', unit: 'mm/s', color: '#f59e0b' },
+          { key: 'vibration_y', label: 'Vibration Y', unit: 'mm/s', color: '#f97316' },
+          { key: 'vibration_z', label: 'Vibration Z', unit: 'mm/s', color: '#eab308' },
+          { key: 'winding_temp_c', label: 'Winding Temp', unit: '°C', color: '#ef4444' },
+          { key: 'motor_current_a', label: 'Motor Current', unit: 'A', color: '#a78bfa' }
         ]
       },
       'env-01': {
         metrics: [
-          { key: 'temperature_c', label: 'دما', unit: '°C', color: '#ef4444' },
-          { key: 'humidity_pct', label: 'رطوبت', unit: '%', color: '#22d3ee' },
-          { key: 'pressure_hpa', label: 'فشار', unit: 'hPa', color: '#a78bfa' },
+          { key: 'temperature_c', label: 'Temperature', unit: '°C', color: '#ef4444' },
+          { key: 'humidity_pct', label: 'Humidity', unit: '%', color: '#22d3ee' },
+          { key: 'pressure_hpa', label: 'Pressure', unit: 'hPa', color: '#a78bfa' },
           { key: 'co2_ppm', label: 'CO₂', unit: 'ppm', color: '#10b981' }
         ]
       }
@@ -265,7 +274,7 @@ export const DASHBOARD_HTML = `<!doctype html>
         options: {
           responsive: true, maintainAspectRatio: false,
           animation: { duration: 300 },
-          plugins: { legend: { labels: { color: '#cbd5e1', font: { family: 'Vazirmatn', size: 11 } } } },
+          plugins: { legend: { labels: { color: '#cbd5e1', font: { family: 'Inter', size: 11 } } } },
           scales: {
             x: { ticks: { color: '#64748b', font: { size: 9 } }, grid: { color: 'rgba(30,41,59,0.5)' } },
             y: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: 'rgba(30,41,59,0.5)' } }
@@ -287,7 +296,7 @@ export const DASHBOARD_HTML = `<!doctype html>
       var list = $('log-list');
       var empty = list.querySelector('.empty-log');
       if (empty) empty.remove();
-      var now = new Date().toLocaleTimeString('fa-IR', { hour12: false });
+      var now = new Date().toLocaleTimeString('en-US', { hour12: false });
       var item = document.createElement('div');
       item.className = 'log-item';
       var summary = ok
@@ -312,7 +321,7 @@ export const DASHBOARD_HTML = `<!doctype html>
 
     /** Pushes a new data point to the chart (keeps last 30). */
     function pushChart(metrics) {
-      var label = new Date().toLocaleTimeString('fa-IR', { hour12: false });
+      var label = new Date().toLocaleTimeString('en-US', { hour12: false });
       chartData.labels.push(label);
       var meta = DEVICE_META[currentDevice];
       meta.metrics.slice(0, 3).forEach(function (m, i) {
@@ -333,10 +342,10 @@ export const DASHBOARD_HTML = `<!doctype html>
         $('stat-total').textContent = d.total;
         $('stat-sent').textContent = d.published;
         $('stat-pending').textContent = d.unpublished;
-        $('conn-status').textContent = 'متصل';
+        $('conn-status').textContent = 'Connected';
         if (d.lastReading && d.lastReading.metrics) updateLiveSensors(d.lastReading.metrics);
       } catch (e) {
-        $('conn-status').textContent = 'قطع';
+        $('conn-status').textContent = 'Disconnected';
       }
     }
 
@@ -365,7 +374,7 @@ export const DASHBOARD_HTML = `<!doctype html>
       sending = true;
       $('btn-start').className = 'btn btn-danger';
       $('btn-start-icon').textContent = '⏸';
-      $('btn-start-text').textContent = 'توقف ارسال';
+      $('btn-start-text').textContent = 'Stop Sending';
       $('btn-single').disabled = true;
       var interval = parseInt($('interval').value) * 1000;
       var batch = parseInt($('batch').value);
@@ -379,7 +388,7 @@ export const DASHBOARD_HTML = `<!doctype html>
       };
       await tick();
       intervalId = setInterval(tick, interval);
-      toast('ارسال خودکار شروع شد', 'success');
+      toast('Auto-send started', 'success');
     }
 
     /** Stops periodic sending. */
@@ -389,9 +398,9 @@ export const DASHBOARD_HTML = `<!doctype html>
       intervalId = null;
       $('btn-start').className = 'btn btn-success';
       $('btn-start-icon').textContent = '▶';
-      $('btn-start-text').textContent = 'شروع ارسال خودکار';
+      $('btn-start-text').textContent = 'Start Auto-Send';
       $('btn-single').disabled = false;
-      toast('ارسال متوقف شد', 'info');
+      toast('Auto-send stopped', 'info');
     }
 
     /** Switches the active device and rebuilds UI sections. */
@@ -414,7 +423,7 @@ export const DASHBOARD_HTML = `<!doctype html>
         var arr = d.readings.slice().reverse();
         var meta = DEVICE_META[deviceId];
         arr.forEach(function (rd) {
-          var label = new Date(rd.ts).toLocaleTimeString('fa-IR', { hour12: false });
+          var label = new Date(rd.ts).toLocaleTimeString('en-US', { hour12: false });
           chartData.labels.push(label);
           meta.metrics.slice(0, 3).forEach(function (m, i) {
             chartData.datasets[i].data.push(rd.metrics[m.key]);
@@ -442,14 +451,14 @@ export const DASHBOARD_HTML = `<!doctype html>
 
     $('btn-resend').addEventListener('click', async function () {
       var b = $('btn-resend'); b.disabled = true;
-      b.textContent = 'در حال ارسال...';
+      b.textContent = 'Sending...';
       try {
         var r = await fetch('/resend?device=' + currentDevice, { method: 'POST' });
         var d = await r.json();
-        toast(d.attempted + ' رکورد بررسی شد', 'success');
+        toast(d.attempted + ' record(s) checked', 'success');
         await refreshStats();
-      } catch (e) { toast('خطا: ' + e.message, 'error'); }
-      finally { b.disabled = false; b.textContent = '🔄 ارسال مجدد Pending'; }
+      } catch (e) { toast('Error: ' + e.message, 'error'); }
+      finally { b.disabled = false; b.textContent = '🔄 Retry Pending'; }
     });
 
     // ─── Boot ────────────────────────────────────────────────────
